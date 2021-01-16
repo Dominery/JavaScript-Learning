@@ -302,10 +302,14 @@ function trackKeys(keys){
     }
     window.addEventListener("keydown",track);
     window.addEventListener("keyup",track);
+    down.unregister=()=>{
+        window.removeEventListener("keydown",track);
+        window.removeEventListener("keyup",track);
+    };
     return down;
 }
 
-const arrowKeys = trackKeys(["ArrowLeft","ArrowRight","ArrowUp"])
+
 
 function runAnimation(frameFunc){
     let lastTime = null;
@@ -323,30 +327,47 @@ function runAnimation(frameFunc){
 function runLevel(level,Display){
     let display = new Display(document.body,level);
     let state = State.start(level);
-    let ending = 1;
+    let ending = 0.5;
+    let running = true;
+
     return new Promise(resolve => {
-        runAnimation(time=>{
-            state = state.update(time,arrowKeys);
-            display.syncState(state);
-            if(state.status === "playing"){
-                return true;
-            }else if(ending>0){
-                ending -= time;
-                return true;
-            }else{
-                display.clear();
-                resolve(state.status);
-                return false;
-            }
-        });
+        function escHandler(event){
+            if(event.key==="Escape")running = !running;
+            event.preventDefault();
+        }
+        window.addEventListener("keydown",escHandler);
+        const arrowKeys = trackKeys(["ArrowLeft","ArrowRight","ArrowUp"])
+
+        function frame(time){
+            if(!running)return true;
+             state = state.update(time,arrowKeys);
+                display.syncState(state);
+                if(state.status === "playing"){
+                    return true;
+                }else if(ending>0){
+                    ending -= time;
+                    return true;
+                }else{
+                    display.clear();
+                    resolve(state.status);
+                    arrowKeys.unregister();
+                    window.removeEventListener("keydown",escHandler);
+                    return false;
+                }
+        }
+        runAnimation(frame);
     });
 }
 
 async function runGame(plans,Display){
-    for(let level=0;level<plans.length;){
+    let playerLives = 3;
+    for(let level=0;level<plans.length&&playerLives>0;){
         let status = await runLevel(new Level(plans[level]),
             Display);
         if(status==="won")level++;
+        else playerLives--;
+        console.log(`You have ${playerLives} lives now!`);
     }
-    console.log("You've won!");
+    if(playerLives>0) console.log("You've won!");
+    else console.log("You've lost!");
 }
