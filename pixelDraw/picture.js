@@ -135,150 +135,167 @@ class PixelEditor{
     }
 }
 
-class ToolSelect{
-    constructor(state,{tools,dispatch}) {
-        this.select = elt("select",{
-            onchange:()=>dispatch({tool:this.select.value})
-        },...Object.keys(tools).map(name=>elt("option",{
-            selected:name === state.tool
-        },name)));
-        this.dom = elt("label",null,"🖌 Tool:",this.select);
-    }
-    syncState(state){this.select.value = state.tool;}
-}
 
-class ColorSelect{
-    constructor(state,{dispatch}) {
-        this.input = elt("input",{
-            type:"color",
-            value:state.color,
-            onchange:()=>dispatch({color:this.input.value})
-        });
-        this.dom = elt("label",null,"🎨 Color:",this.input);
-    }
-    syncState(state){this.input.value = state.color;}
-}
 
-function draw(pos,state,dispatch){
-    function drawPixel({x,y},state){
-        let drawn = {x,y,color:state.color};
-        dispatch({picture:state.picture.draw([drawn])});
+const baseTools = function (){
+    function draw(pos,state,dispatch){
+        function drawPixel({x,y},state){
+            let drawn = {x,y,color:state.color};
+            dispatch({picture:state.picture.draw([drawn])});
+        }
+        drawPixel(pos,state);
+        return drawPixel;
     }
-    drawPixel(pos,state);
-    return drawPixel;
-}
 
-function rectangle(start,state,dispatch){
-    function drawRectangle(pos){
-        let xStart = Math.min(pos.x, start.x);
-        let xEnd = Math.max(pos.x, start.x);
-        let yStart = Math.min(pos.y, start.y);
-        let yEnd = Math.max(pos.y,start.y);
-        let drawn = [];
-        for(let x=xStart;x<=xEnd;x++){
-            for(let y=yStart;y<=yEnd;y++){
-                drawn.push({x,y,color:state.color});
+    function rectangle(start,state,dispatch){
+        function drawRectangle(pos){
+            let xStart = Math.min(pos.x, start.x);
+            let xEnd = Math.max(pos.x, start.x);
+            let yStart = Math.min(pos.y, start.y);
+            let yEnd = Math.max(pos.y,start.y);
+            let drawn = [];
+            for(let x=xStart;x<=xEnd;x++){
+                for(let y=yStart;y<=yEnd;y++){
+                    drawn.push({x,y,color:state.color});
+                }
+            }
+            dispatch({picture:state.picture.draw(drawn)});
+        }
+        drawRectangle(start);
+        return drawRectangle;
+    }
+
+    const around = [{dx: -1,dy:0},{dx: 1,dy: 0},
+                {dx: 0,dy:-1},{dx: 0, dy: 1}];
+    function fill({x,y},state,dispatch){
+        let targetColor = state.picture.pixel(x,y);
+        let drawn = [{x,y,color:state.color}];
+        for(let done=0;done<drawn.length;done++){
+            for(let {dx,dy} of around){
+                let x = drawn[done].x+dx,y =drawn[done].y+dy;
+                if(x>=0&&x<=state.picture.width&&
+                   y>=0&&y<=state.picture.height&&
+                   state.picture.pixel(x,y)===targetColor&&
+                   !drawn.some(p=>p.x===x&&p.y===y)){
+                    drawn.push({x,y,color: state.color});
+                }
             }
         }
         dispatch({picture:state.picture.draw(drawn)});
     }
-    drawRectangle(start);
-    return drawRectangle;
-}
+    function pick(pos,state,dispatch){
+        dispatch({color:state.picture.pixel(pos.x,pos.y)});
+    }
+    return {
+        draw,rectangle,around,fill,pick
+    }
+}()
 
-const around = [{dx: -1,dy:0},{dx: 1,dy: 0},
-                {dx: 0,dy:-1},{dx: 0, dy: 1}];
-function fill({x,y},state,dispatch){
-    let targetColor = state.picture.pixel(x,y);
-    let drawn = [{x,y,color:state.color}];
-    for(let done=0;done<drawn.length;done++){
-        for(let {dx,dy} of around){
-            let x = drawn[done].x+dx,y =drawn[done].y+dy;
-            if(x>=0&&x<=state.picture.width&&
-               y>=0&&y<=state.picture.height&&
-               state.picture.pixel(x,y)===targetColor&&
-               !drawn.some(p=>p.x===x&&p.y===y)){
-                drawn.push({x,y,color: state.color});
-            }
+const baseControls = function (){
+    class ToolSelect{
+        constructor(state,{tools,dispatch}) {
+            this.select = elt("select",{
+                onchange:()=>dispatch({tool:this.select.value})
+            },...Object.keys(tools).map(name=>elt("option",{
+                selected:name === state.tool
+            },name)));
+            this.dom = elt("label",null,"🖌 Tool:",this.select);
         }
+        syncState(state){this.select.value = state.tool;}
     }
-    dispatch({picture:state.picture.draw(drawn)});
-}
 
-function pick(pos,state,dispatch){
-    dispatch({color:state.picture.pixel(pos.x,pos.y)});
-}
-
-class SaveButton{
-    constructor(state) {
-        this.picture = state.picture;
-        this.dom = elt("button",{
-            onclick:()=>this.save()
-        },"💾 Save");
+    class ColorSelect{
+        constructor(state,{dispatch}) {
+            this.input = elt("input",{
+                type:"color",
+                value:state.color,
+                onchange:()=>dispatch({color:this.input.value})
+            });
+            this.dom = elt("label",null,"🎨 Color:",this.input);
+        }
+        syncState(state){this.input.value = state.color;}
     }
-    save(){
-        let canvas = elt("canvas");
-        drawPicture(this.picture,canvas,1);
-        let link = elt("a",{
-            href:canvas.toDataURL(),
-            download:"pixelart.png"
+
+    class SaveButton{
+        constructor(state) {
+            this.picture = state.picture;
+            this.dom = elt("button",{
+                onclick:()=>this.save()
+            },"💾 Save");
+        }
+        save(){
+            let canvas = elt("canvas");
+            drawPicture(this.picture,canvas,1);
+            let link = elt("a",{
+                href:canvas.toDataURL(),
+                download:"pixelart.png"
+            });
+            link.click();
+            link.remove();
+            }
+        syncState(state){this.picture = state.picture;}
+    }
+
+    class LoadButton{
+        constructor(_,{dispatch}) {
+            this.dom = elt("button",{
+                onclick:()=>startLoad(dispatch)
+            },"📁 Load");
+        }
+        syncState(){}
+    }
+    function startLoad(dispatch){
+        let input = elt("input",{
+            type:"file",
+            onchange:()=>finishLoad(input.files[0],dispatch)
         });
-        link.click();
-        link.remove();
+        document.body.appendChild(input);
+        input.click();
+        input.remove();
     }
-    syncState(state){this.picture = state.picture;}
-}
 
-class LoadButton{
-    constructor(_,{dispatch}) {
-        this.dom = elt("button",{
-            onclick:()=>startLoad(dispatch)
-        },"📁 Load");
-    }
-    syncState(){}
-}
-
-function startLoad(dispatch){
-    let input = elt("input",{
-        type:"file",
-        onchange:()=>finishLoad(input.files[0],dispatch)
-    });
-    document.body.appendChild(input);
-    input.click();
-    input.remove();
-}
-
-function finishLoad(file,dispatch){
-    if(file===null)return;
-    let reader = new FileReader();
-    reader.addEventListener("load",()=>{
-        let image = elt("img",{
-            onload:()=>dispatch({picture:pictureFromImage(image)}),
-            src:reader.result
+    function finishLoad(file,dispatch){
+        if(file===null)return;
+        let reader = new FileReader();
+        reader.addEventListener("load",()=>{
+            let image = elt("img",{
+                onload:()=>dispatch({picture:pictureFromImage(image)}),
+                src:reader.result
+            });
         });
-    });
-    reader.readAsDataURL(file);
+        reader.readAsDataURL(file);
 
-}
-
-function pictureFromImage(image){
-    let width = Math.min(200,image.width);
-    let height = Math.min(200,image.height);
-    let canvas = elt("canvas",{width,height});
-    let cx = canvas.getContext("2d");
-    cx.drawImage(image,0,0);
-    let pixels = [];
-    let {data} = cx.getImageData(0,0,width,height);
-
-    function hex(n){
-        return n.toString(16).padStart(2,"0");
     }
-    for(let i =0;i<data.length;i+=4){
-        let [r,g,b] = data.slice(i,i+3);
-        pixels.push("#"+hex(r)+hex(g)+hex(b));
+    function pictureFromImage(image){
+        let width = Math.min(200,image.width);
+        let height = Math.min(200,image.height);
+        let canvas = elt("canvas",{width,height});
+        let cx = canvas.getContext("2d");
+        cx.drawImage(image,0,0);
+        let pixels = [];
+        let {data} = cx.getImageData(0,0,width,height);
+
+        function hex(n){
+            return n.toString(16).padStart(2,"0");
+        }
+        for(let i =0;i<data.length;i+=4){
+            let [r,g,b] = data.slice(i,i+3);
+            pixels.push("#"+hex(r)+hex(g)+hex(b));
+        }
+        return new Picture(width,height,pixels);
     }
-    return new Picture(width,height,pixels);
-}
+
+    class UndoButton{
+        constructor(state,{dispatch}) {
+            this.dom = elt("button",{
+                onclick:()=>dispatch({undo:true}),
+                disabled: state.done.length ===0
+            },"⮪ Undo");
+        }
+        syncState(state){this.dom.disabled = state.done.length===0;}
+    }
+    return [ToolSelect,ColorSelect,SaveButton,LoadButton,UndoButton];
+}()
 
 function historyUpdateState(state,action){
     if(action.undo===true){
@@ -299,15 +316,6 @@ function historyUpdateState(state,action){
     }
 }
 
-class UndoButton{
-    constructor(state,{dispatch}) {
-        this.dom = elt("button",{
-            onclick:()=>dispatch({undo:true}),
-            disabled: state.done.length ===0
-        },"⮪ Undo");
-    }
-    syncState(state){this.dom.disabled = state.done.length===0;}
-}
 
 const startState = {
     tool:"draw",
@@ -317,11 +325,6 @@ const startState = {
     doneAt:0
 };
 
-const baseTools = {draw,fill,rectangle,pick};
-
-const baseControls = [
-    ToolSelect,ColorSelect,SaveButton,LoadButton,UndoButton
-];
 
 function startPixelEditor({state=startState,
                             tools = baseTools,
