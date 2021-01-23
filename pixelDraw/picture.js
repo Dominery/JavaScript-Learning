@@ -50,22 +50,29 @@ class PictureCanvas{
     };
     syncState(picture){
         if(this.picture === picture)return;
+        drawPicture(picture,this.dom,scale,this.picture);
         this.picture = picture;
-        drawPicture(this.picture,this.dom,scale);
     }
 }
 
-function drawPicture(picture,canvas,scale){
-    canvas.width = picture.width * scale;
-    canvas.height = picture.height * scale;
+function drawPicture(picture,canvas,scale,previous){
+    if(previous==null||picture.width!==previous.width||
+        picture.height!==previous.height){
+        canvas.width = picture.width * scale;
+        canvas.height = picture.height * scale;
+        previous = null;
+    }
+
     let cx = canvas.getContext("2d");
 
-    for(let x=0;x<picture.width;x++){
-        for(let y=0;y<picture.height;y++){
-            cx.fillStyle = picture.pixel(x,y);
-            cx.fillRect(x*scale,y*scale,scale,scale);
-        }
-    }
+      for (let y = 0; y < picture.height; y++) {
+          for (let x = 0; x < picture.width; x++) {
+              if(previous===null||previous.pixel(x,y)!==picture.pixel(x,y)){
+                  cx.fillStyle = picture.pixel(x, y);
+                  cx.fillRect(x * scale, y * scale, scale, scale);
+              }
+          }
+      }
 }
 
 PictureCanvas.prototype.mouse = function (downEvent,onDown){
@@ -125,7 +132,12 @@ class PixelEditor{
         this.controls = controls.map(
             Control=>new Control(state,config)
         );
-        this.dom = elt("div",{},this.canvas.dom,elt("br"),
+        this.dom = elt("div",{
+            tabIndex:0,
+            onkeydown:event=>{
+                if((event.ctrlKey||event.metaKey)&&event.key==="z")dispatch({undo:true});
+            }
+            },this.canvas.dom,elt("br"),
             ...this.controls.reduce((a,c)=>a.concat(" ",c.dom),[]));
     }
     syncState(state){
@@ -138,13 +150,43 @@ class PixelEditor{
 
 
 const baseTools = function (){
-    function draw(pos,state,dispatch){
-        function drawPixel({x,y},state){
-            let drawn = {x,y,color:state.color};
-            dispatch({picture:state.picture.draw([drawn])});
+
+    function drawLine(start,end,color){
+        let point = [];
+        if(Math.abs(start.x-end.x)>Math.abs(start.y-end.y)){
+            [start,end] = start.x<end.x? [start,end]: [end,start];
+            let gradient = (end.y-start.y)/(end.x-start.x);
+            for(let {x,y}=start;x<=end.x;x++){
+                point.push({x, y:Math.round(y),color});
+                y += gradient;
+            }
         }
-        drawPixel(pos,state);
-        return drawPixel;
+        else{
+            [start,end] = start.y<end.y?[start,end]:[end,start];
+            let gradient = (end.x-start.x)/(end.y-start.y);
+            for(let {x,y}=start;y<=end.y;y++){
+                point.push({x:Math.round(x),y,color});
+                x+=gradient;
+            }
+        }
+        return point;
+    }
+
+    function draw(pos,state,dispatch){
+        function connect(newPos,state){
+            let drawn = drawLine(pos,newPos,state.color)
+            dispatch({picture:state.picture.draw(drawn)});
+            pos = newPos;
+        }
+        connect(pos,state);
+        return connect;
+    }
+
+    function line(pos,state,dispatch){
+        return end=>{
+            let line = drawLine(pos,end,state.color);
+            dispatch({picture:state.picture.draw(line)});
+        };
     }
 
     function rectangle(start,state,dispatch){
@@ -163,6 +205,30 @@ const baseTools = function (){
         }
         drawRectangle(start);
         return drawRectangle;
+    }
+
+    function circle(center,state,dispatch){
+        function distance(pos){
+            return Math.sqrt(Math.pow(pos.x-center.x,2)+Math.pow(pos.y-center.y,2))
+        }
+        function drawCircle(pos){
+            let radius = Math.ceil(distance(pos));
+            let xStart = Math.max(center.x-radius,0);
+            let xEnd = Math.min(center.x+radius,state.picture.width);
+            let yStart = Math.max(center.y-radius,0);
+            let yEnd = Math.min(center.y+radius,state.picture.height);
+            let drawn = [];
+
+            for(let x=xStart;x<=xEnd;x++){
+                for(let y=yStart;y<=yEnd;y++){
+                    if(distance({x:x,y:y})<radius){
+                        drawn.push({x,y,color:state.color});
+                    }
+                }
+            }
+            dispatch({picture:state.picture.draw(drawn)});
+        }
+        return drawCircle
     }
 
     const around = [{dx: -1,dy:0},{dx: 1,dy: 0},
@@ -187,7 +253,7 @@ const baseTools = function (){
         dispatch({color:state.picture.pixel(pos.x,pos.y)});
     }
     return {
-        draw,rectangle,around,fill,pick
+        draw,rectangle,circle,line,around,fill,pick
     }
 }()
 
@@ -267,8 +333,8 @@ const baseControls = function (){
 
     }
     function pictureFromImage(image){
-        let width = Math.min(200,image.width);
-        let height = Math.min(200,image.height);
+        let width = Math.min(100,image.width);
+        let height = Math.min(100,image.height);
         let canvas = elt("canvas",{width,height});
         let cx = canvas.getContext("2d");
         cx.drawImage(image,0,0);
@@ -305,7 +371,7 @@ function historyUpdateState(state,action){
             done:state.done.slice(1),
             doneAt:0
         });
-    }else if(state.picture &&
+    }else if(action.picture &&
              state.doneAt < Date.now()-1000){
         return Object.assign({},state,action,{
             done:[state.picture,...state.done],
