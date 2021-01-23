@@ -253,7 +253,7 @@ const baseTools = function (){
         dispatch({color:state.picture.pixel(pos.x,pos.y)});
     }
     return {
-        draw,rectangle,circle,line,around,fill,pick
+        draw,rectangle,circle,line,fill,pick
     }
 }()
 
